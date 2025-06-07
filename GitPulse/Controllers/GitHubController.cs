@@ -4,6 +4,8 @@ using GitPulse.Models;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
 using GitPulse.Services;
+using GitPulse.Helpers;
+using GitPulse.Data;
 
 namespace GitPulse.Controllers
 {
@@ -19,63 +21,87 @@ namespace GitPulse.Controllers
 		/// <returns></returns>
 		/// 
 		[HttpPost("analyze")]
-		public async Task<IActionResult> AnalyzeRepo([FromBody] GitHubRepoRequestDTO request, [FromServices] SonarScannerService scanner)
-		{
-			if (string.IsNullOrWhiteSpace(request.RepoUrl))
-				return BadRequest("RepoUrl is required.");
-
-			string tempFolder = Path.Combine(Path.GetTempPath(), $"repo_{Guid.NewGuid()}");
-
-			try
+			public async Task<IActionResult> AnalyzeRepo(
+				[FromBody] GitHubRepoRequestDTO request,
+				[FromServices] SonarScannerService scanner,
+				[FromServices] SonarService sonarService,
+				[FromServices] SummaryService summaryService,
+				[FromServices] GitPulseDbContext db)
 			{
-				Directory.CreateDirectory(tempFolder);
+				if (string.IsNullOrWhiteSpace(request.RepoUrl))
+					return BadRequest("RepoUrl is required.");
 
-				// 🔐 Handle private repo token if needed
-				string cloneUrl = request.RepoUrl;
-				if (!string.IsNullOrWhiteSpace(request.Token))
+				string tempFolder = Path.Combine(Path.GetTempPath(), $"repo_{Guid.NewGuid()}");
+
+				try
 				{
-					var uri = new Uri(request.RepoUrl);
-					string tokenUrl = $"https://{request.Token}@{uri.Host}{uri.AbsolutePath}";
-					cloneUrl = tokenUrl;
+					Directory.CreateDirectory(tempFolder);
+
+					string cloneUrl = request.RepoUrl;
+					if (!string.IsNullOrWhiteSpace(request.Token))
+					{
+						var uri = new Uri(request.RepoUrl);
+						string tokenUrl = $"https://{request.Token}@{uri.Host}{uri.AbsolutePath}";
+						cloneUrl = tokenUrl;
+					}
+
+					var cloneProcess = Process.Start(new ProcessStartInfo
+					{
+						FileName = "git",
+						Arguments = $"clone {cloneUrl} \"{tempFolder}\"",
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+						UseShellExecute = false,
+						CreateNoWindow = true
+					});
+
+					await cloneProcess.WaitForExitAsync();
+
+					if (cloneProcess.ExitCode != 0)
+					{
+						string error = await cloneProcess.StandardError.ReadToEndAsync();
+						return StatusCode(500, $"Git clone failed:\n{error}");
+					}
+
+					string sonarToken = "squ_44f1ecbd9adc6b648a85f81f00bca6da8e1e4f17";
+					string sonarKey = $"scan_{Guid.NewGuid():N}";
+
+					string resultKey = await scanner.RunSonarScanAsync(tempFolder, sonarKey, sonarToken);
+
+					// NEW: Fetch and save full report
+					var metricsJson = await sonarService.GetMetricsAsync(resultKey);
+					var issuesJson = await sonarService.GetTopIssuesAsync(resultKey);
+					var report = SonarJsonParser.ParseReport(metricsJson, issuesJson);
+					var summary = summaryService.GenerateSummary(report);
+
+					db.ScanResults.Add(new ScanResult
+					{
+						ProjectKey = resultKey,
+						Name = request.Name,
+						Bugs = report.Bugs,
+						CodeSmells = report.CodeSmells,
+						Vulnerabilities = report.Vulnerabilities,
+						Coverage = report.Coverage,
+						DuplicatedLinesDensity = report.DuplicatedLinesDensity,
+						Summary = summary.Text,
+						QualityGate = summary.QualityGate
+					});
+
+					await db.SaveChangesAsync();
+
+					return Ok(new
+					{
+						message = "Repo cloned and analyzed successfully!",
+						sonarKey = resultKey,
+						metricsUrl = $"/api/sonar/summary/{resultKey}"
+					});
 				}
-
-				// 🧪 Clone the repo using git
-				var cloneProcess = Process.Start(new ProcessStartInfo
+				catch (Exception ex)
 				{
-					FileName = "git",
-					Arguments = $"clone {cloneUrl} \"{tempFolder}\"",
-					RedirectStandardOutput = true,
-					RedirectStandardError = true,
-					UseShellExecute = false,
-					CreateNoWindow = true
-				});
-
-				await cloneProcess.WaitForExitAsync();
-
-				if (cloneProcess.ExitCode != 0)
-				{
-					string error = await cloneProcess.StandardError.ReadToEndAsync();
-					return StatusCode(500, $"Git clone failed:\n{error}");
+					return StatusCode(500, $"Something went wrong: {ex.Message}");
 				}
-
-				// ✅ Clone successful — now run Sonar analysis
-				string sonarToken = "squ_44f1ecbd9adc6b648a85f81f00bca6da8e1e4f17"; // your real Sonar token
-				string sonarKey = $"scan_{Guid.NewGuid():N}"; // unique project key
-
-				string resultKey = await scanner.RunSonarScanAsync(tempFolder, sonarKey, sonarToken);
-
-				return Ok(new
-				{
-					message = "Repo cloned and analyzed successfully!",
-					sonarKey = resultKey,
-					metricsUrl = $"/api/sonar/metrics/{resultKey}"
-				});
 			}
-			catch (Exception ex)
-			{
-				return StatusCode(500, $"Something went wrong: {ex.Message}");
-			}
-		}
+
 
 	}
 }

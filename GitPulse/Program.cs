@@ -1,8 +1,15 @@
 ﻿using GitPulse.Services;
+using GitPulse.Data;
+using Microsoft.EntityFrameworkCore;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 🔐 Define CORS policy
+// Add Database to the service container
+builder.Services.AddDbContext<GitPulseDbContext>(options =>
+	options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Define CORS policy
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 builder.Services.AddCors(options =>
 {
@@ -16,6 +23,7 @@ builder.Services.AddCors(options =>
 });
 
 // Add services to the container.
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -24,6 +32,8 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<SonarService>();
 builder.Services.AddScoped<SonarScannerService>();
 builder.Services.AddScoped<SummaryService>();
+builder.Services.AddScoped<JiraService>();
+
 
 
 var app = builder.Build();

@@ -15,7 +15,7 @@ namespace GitPulse.Services
 			_http = factory.CreateClient();
 			_http.BaseAddress = new Uri("http://localhost:9000");
 
-			// 🔐 Add the real token as a Basic Auth header
+			// Add the token as a Basic Auth header
 			string token = "squ_44f1ecbd9adc6b648a85f81f00bca6da8e1e4f17";
 			string authHeader = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{token}:"));
 			_http.DefaultRequestHeaders.Authorization =
@@ -37,7 +37,7 @@ namespace GitPulse.Services
 			return await response.Content.ReadAsStringAsync();
 		}
 
-		// ← Changed: return JSON string instead of deserialized list
+		// return JSON string
 		public async Task<string> GetTopIssuesAsync(string projectKey)
 		{
 			var response = await _http.GetAsync($"/api/issues/search?componentKeys={projectKey}&ps=5");

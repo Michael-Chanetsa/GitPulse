@@ -2,6 +2,8 @@
 using Microsoft.AspNetCore.Mvc;
 using GitPulse.Models;
 using GitPulse.Helpers;
+using GitPulse.Data;
+using Microsoft.EntityFrameworkCore;
 
 
 namespace GitPulse.Controllers
@@ -85,6 +87,16 @@ namespace GitPulse.Controllers
 			{
 				return StatusCode(500, $"❌ Failed to retrieve summary: {ex.Message}");
 			}
+		}
+
+		[HttpGet("scans")]
+		public async Task<IActionResult> GetAllScans([FromServices] GitPulseDbContext db)
+		{
+			var scans = await db.ScanResults
+				.OrderByDescending(s => s.ScanDate)
+				.ToListAsync();
+
+			return Ok(scans);
 		}
 
 

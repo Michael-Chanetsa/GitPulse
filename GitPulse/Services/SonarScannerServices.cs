@@ -6,7 +6,7 @@ namespace GitPulse.Services
 	{
 		public async Task<string> RunSonarScanAsync(string repoPath, string sonarProjectKey, string token)
 		{
-			// 🧠 Auto-detect project type
+			//  "Auto-detect" project type based on boolean and then routes to the appropriate Sonar CLI Scanner as .NET needs it's own unique scanner.
 			bool isDotNet = Directory.GetFiles(repoPath, "*.sln", SearchOption.AllDirectories).Any();
 			bool isNode = File.Exists(Path.Combine(repoPath, "package.json"));
 			bool isPython = Directory.GetFiles(repoPath, "*.py", SearchOption.AllDirectories).Any();
@@ -17,6 +17,16 @@ namespace GitPulse.Services
 				return await RunGenericSonarScanAsync(repoPath, sonarProjectKey, token);
 		}
 
+
+		/// <summary>
+		/// .NET Specific Scanner
+		/// </summary>
+		/// <param name="repoPath"></param>
+		/// <param name="sonarProjectKey"></param>
+		/// <param name="token"></param>
+		/// <returns></returns>
+		/// <exception cref="Exception"></exception>
+		/// <exception cref="FileNotFoundException"></exception>
 		private async Task<string> RunDotNetSonarScanAsync(string repoPath, string sonarProjectKey, string token)
 		{
 			async Task RunStep(string command, string args, string workingDir)
@@ -48,7 +58,7 @@ namespace GitPulse.Services
 				}
 			}
 
-			// TEMP FIX: Remove global.json if exists
+			// TEMP FIX: Remove global.json if exists (running into odd outputs do to it but should not affect immediate building, scanning etc.)
 			var globalJsonPath = Path.Combine(repoPath, "global.json");
 			if (File.Exists(globalJsonPath))
 				File.Delete(globalJsonPath);
@@ -69,9 +79,20 @@ namespace GitPulse.Services
 			return sonarProjectKey;
 		}
 
+
+		/// <summary>
+		/// Generic Scan
+		/// </summary>
+		/// <param name="repoPath"></param>
+		/// <param name="sonarProjectKey"></param>
+		/// <param name="token"></param>
+		/// <returns></returns>
+		/// <exception cref="Exception"></exception>
+
+
 		private async Task<string> RunGenericSonarScanAsync(string repoPath, string sonarProjectKey, string token)
 		{
-			// 1. Create sonar-project.properties file
+			// 1. Create sonar-project.properties file 
 			string props = $@"
 				sonar.projectKey={sonarProjectKey}
 				sonar.sources=.

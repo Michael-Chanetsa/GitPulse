@@ -14,6 +14,7 @@ namespace GitPulse.Helpers
 			{
 				var root = doc.RootElement;
 
+
 				report.ProjectKey = root.GetProperty("component").GetProperty("key").GetString();
 
 				if (root.GetProperty("component").TryGetProperty("measures", out var measures))

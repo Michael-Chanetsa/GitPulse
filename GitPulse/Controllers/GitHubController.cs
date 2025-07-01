@@ -1,107 +1,83 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using GitPulse.Models;
-using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics;
-using GitPulse.Services;
-using GitPulse.Helpers;
+﻿using System.Text;
 using GitPulse.Data;
+using GitPulse.Models;
+using GitPulse.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
-namespace GitPulse.Controllers
+var builder = WebApplication.CreateBuilder(args);
+
+// ─────────────── Configuration ───────────────
+var config = builder.Configuration;
+
+// ─────────────── Database ───────────────
+builder.Services.AddDbContext<GitPulseDbContext>(options =>
+	options.UseSqlServer(config.GetConnectionString("DefaultConnection")));
+
+// ─────────────── CORS ───────────────
+const string MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+builder.Services.AddCors(options =>
 {
-	[ApiController]
-	[Route("api/[controller]")]
-	public class GitHubController : ControllerBase
+	options.AddPolicy(MyAllowSpecificOrigins, policy =>
 	{
+		policy.WithOrigins("http://localhost:4200")
+			  .AllowAnyHeader()
+			  .AllowAnyMethod();
+	});
+});
 
-		/// <summary>
-		/// The following Clones a GitHub repository to a temporary folder there after generates a temporary SonarQube project key and runs a SonarQube analysis on the cloned repository.
-		/// </summary>
-		/// <param name="request"></param>
-		/// <returns></returns>
-		/// 
-		[HttpPost("analyze")]
-			public async Task<IActionResult> AnalyzeRepo(
-				[FromBody] GitHubRepoRequestDTO request,
-				[FromServices] SonarScannerService scanner,
-				[FromServices] SonarService sonarService,
-				[FromServices] SummaryService summaryService,
-				[FromServices] GitPulseDbContext db)
-			{
-				if (string.IsNullOrWhiteSpace(request.RepoUrl))
-					return BadRequest("RepoUrl is required.");
+// ─────────────── Jira & Groq Services ───────────────
+builder.Services.Configure<JiraConfiguration>(config.GetSection("JiraConfiguration"));
+builder.Services.AddHttpClient("JiraClient");
 
-				string tempFolder = Path.Combine(Path.GetTempPath(), $"repo_{Guid.NewGuid()}");
+builder.Services.AddHttpClient(); // Generic fallback
+builder.Services.AddScoped<SonarService>();
+builder.Services.AddScoped<SonarScannerService>();
+builder.Services.AddScoped<SummaryService>();
+builder.Services.AddScoped<GroqService>(); // ✅ Groq AI service
 
-				try
-				{
-					Directory.CreateDirectory(tempFolder);
+// ─────────────── Authentication (JWT) ───────────────
+builder.Services
+	.AddAuthentication(options =>
+	{
+		options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+		options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+	})
+	.AddJwtBearer(options =>
+	{
+		options.TokenValidationParameters = new TokenValidationParameters
+		{
+			ValidateIssuerSigningKey = true,
+			IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"])),
+			ValidateIssuer = true,
+			ValidIssuer = config["Jwt:Issuer"],
+			ValidateAudience = true,
+			ValidAudience = config["Jwt:Audience"],
+			ValidateLifetime = true
+		};
+	});
 
-					string cloneUrl = request.RepoUrl;
-					if (!string.IsNullOrWhiteSpace(request.Token))
-					{
-						var uri = new Uri(request.RepoUrl);
-						string tokenUrl = $"https://{request.Token}@{uri.Host}{uri.AbsolutePath}";
-						cloneUrl = tokenUrl;
-					}
+builder.Services.AddAuthorization();
 
-					var cloneProcess = Process.Start(new ProcessStartInfo
-					{
-						FileName = "git",
-						Arguments = $"clone {cloneUrl} \"{tempFolder}\"",
-						RedirectStandardOutput = true,
-						RedirectStandardError = true,
-						UseShellExecute = false,
-						CreateNoWindow = true
-					});
+// ─────────────── Controllers & Swagger ───────────────
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
-					await cloneProcess.WaitForExitAsync();
+// ─────────────── App Build & Pipeline ───────────────
+var app = builder.Build();
 
-					if (cloneProcess.ExitCode != 0)
-					{
-						string error = await cloneProcess.StandardError.ReadToEndAsync();
-						return StatusCode(500, $"Git clone failed:\n{error}");
-					}
+app.UseCors(MyAllowSpecificOrigins);
 
-					string sonarToken = "squ_44f1ecbd9adc6b648a85f81f00bca6da8e1e4f17";
-					string sonarKey = $"scan_{Guid.NewGuid():N}";
-
-					string resultKey = await scanner.RunSonarScanAsync(tempFolder, sonarKey, sonarToken);
-
-					// NEW: Fetch and save full report
-					var metricsJson = await sonarService.GetMetricsAsync(resultKey);
-					var issuesJson = await sonarService.GetTopIssuesAsync(resultKey);
-					var report = SonarJsonParser.ParseReport(metricsJson, issuesJson);
-					var summary = summaryService.GenerateSummary(report);
-
-					db.ScanResults.Add(new ScanResult
-					{
-						ProjectKey = resultKey,
-						Name = request.Name,
-						Bugs = report.Bugs,
-						CodeSmells = report.CodeSmells,
-						Vulnerabilities = report.Vulnerabilities,
-						Coverage = report.Coverage,
-						DuplicatedLinesDensity = report.DuplicatedLinesDensity,
-						Summary = summary.Text,
-						QualityGate = summary.QualityGate
-					});
-
-					await db.SaveChangesAsync();
-
-					return Ok(new
-					{
-						message = "Repo cloned and analyzed successfully!",
-						sonarKey = resultKey,
-						metricsUrl = $"/api/sonar/summary/{resultKey}"
-					});
-				}
-				catch (Exception ex)
-				{
-					return StatusCode(500, $"Something went wrong: {ex.Message}");
-				}
-			}
-
-
-	}
+if (app.Environment.IsDevelopment())
+{
+	app.UseSwagger();
+	app.UseSwaggerUI();
 }
+
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();

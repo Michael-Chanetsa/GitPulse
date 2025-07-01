@@ -16,7 +16,7 @@ namespace GitPulse.Services
 			_http.BaseAddress = new Uri("http://localhost:9000");
 
 			// Add the token as a Basic Auth header
-			string token = "squ_44f1ecbd9adc6b648a85f81f00bca6da8e1e4f17";
+			string token = "squ_b9b656a9ae4890822798af7424f2d2b547ed24d5";
 			string authHeader = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{token}:"));
 			_http.DefaultRequestHeaders.Authorization =
 				new AuthenticationHeaderValue("Basic", authHeader);
@@ -40,9 +40,37 @@ namespace GitPulse.Services
 		// return JSON string
 		public async Task<string> GetTopIssuesAsync(string projectKey)
 		{
-			var response = await _http.GetAsync($"/api/issues/search?componentKeys={projectKey}&ps=5");
+			var response = await _http.GetAsync(
+				$"/api/issues/search?componentKeys={projectKey}&types=BUG,CODE_SMELL,VULNERABILITY&ps=5");
+
 			response.EnsureSuccessStatusCode();
 			return await response.Content.ReadAsStringAsync();
 		}
+
+		public async Task<bool> WaitForAnalysisAsync(string projectKey, int timeoutSeconds = 30)
+		{
+			var startTime = DateTime.UtcNow;
+
+			while ((DateTime.UtcNow - startTime).TotalSeconds < timeoutSeconds)
+			{
+				var response = await _http.GetAsync($"/api/ce/component?component={projectKey}");
+				response.EnsureSuccessStatusCode();
+
+				var content = await response.Content.ReadAsStringAsync();
+				using var doc = JsonDocument.Parse(content);
+
+				var root = doc.RootElement;
+				if (root.TryGetProperty("queue", out var queue) && queue.GetArrayLength() == 0)
+				{
+					// ✅ Nothing in queue → processing finished
+					return true;
+				}
+
+				await Task.Delay(3000); // wait 3 seconds before checking again
+			}
+
+			return false; // ⏰ Timeout
+		}
+
 	}
 }

@@ -4,7 +4,8 @@ using GitPulse.Models;
 using GitPulse.Helpers;
 using GitPulse.Data;
 using Microsoft.EntityFrameworkCore;
-
+using static System.Net.WebRequestMethods;
+using System.Text.Json;
 
 namespace GitPulse.Controllers
 {
@@ -19,10 +20,6 @@ namespace GitPulse.Controllers
 			_sonarService = sonarService;
 		}
 
-		/// <summary>
-		/// Gets key SonarQube metrics for the specified project.
-		/// </summary>
-		/// <param name="projectKey">The project key used in SonarQube</param>
 		[HttpGet("metrics/{projectKey}")]
 		public async Task<IActionResult> GetMetrics(string projectKey)
 		{
@@ -37,10 +34,6 @@ namespace GitPulse.Controllers
 			}
 		}
 
-		/// <summary>
-		/// Gets the Quality Gate status for the specified project.
-		/// </summary>
-		/// <param name="projectKey">The project key used in SonarQube</param>
 		[HttpGet("quality-gate/{projectKey}")]
 		public async Task<IActionResult> GetQualityGate(string projectKey)
 		{
@@ -55,21 +48,24 @@ namespace GitPulse.Controllers
 			}
 		}
 
+
 		[HttpGet("summary/{projectKey}")]
 		public async Task<IActionResult> GetSummary(
-	string projectKey,
-	[FromServices] SonarService sonarService,
-	[FromServices] SummaryService summaryService)
+			string projectKey,
+			[FromServices] SummaryService summaryService)
 		{
 			try
 			{
-				var metricsJson = await sonarService.GetMetricsAsync(projectKey);
-				var issuesJson = await sonarService.GetTopIssuesAsync(projectKey);
+				var waited = await _sonarService.WaitForAnalysisAsync(projectKey);
+				if (!waited)
+					return StatusCode(504, $"⏰ Timed out waiting for SonarQube analysis for {projectKey}");
+
+				var metricsJson = await _sonarService.GetMetricsAsync(projectKey);
+				var issuesJson = await _sonarService.GetTopIssuesAsync(projectKey);
 
 				var report = SonarJsonParser.ParseReport(metricsJson, issuesJson);
 				var summaryResult = summaryService.GenerateSummary(report);
 
-				// Return summaryResult.Text (a string), not the entire object
 				return Ok(new
 				{
 					projectKey,
@@ -89,6 +85,7 @@ namespace GitPulse.Controllers
 			}
 		}
 
+
 		[HttpGet("scans")]
 		public async Task<IActionResult> GetAllScans([FromServices] GitPulseDbContext db)
 		{
@@ -99,7 +96,7 @@ namespace GitPulse.Controllers
 			return Ok(scans);
 		}
 
-
+		
 
 
 	}

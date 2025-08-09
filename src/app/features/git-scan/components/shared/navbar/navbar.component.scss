@@ -1,0 +1,25 @@
+.navbar {
+  background-color: #222;
+  padding: 1rem;
+  color: white;
+
+  ul {
+    list-style: none;
+    display: flex;
+    gap: 2rem;
+
+    li a {
+      color: white;
+      text-decoration: none;
+
+      &.active {
+        font-weight: bold;
+        border-bottom: 2px solid #00bfff;
+      }
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+}

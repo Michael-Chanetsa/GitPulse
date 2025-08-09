@@ -1,0 +1,34 @@
+<app-navbar></app-navbar>
+
+<!-- rest of content -->
+
+
+<div class="history-card">
+  <h2>📜 Scan History</h2>
+
+  <div *ngIf="loading">Loading...</div>
+  <div *ngIf="error">{{ error }}</div>
+
+  <table *ngIf="scans.length">
+    <thead>
+      <tr>
+        <th>Scan Name</th>
+        <th>Key</th>
+        <th>Bugs</th>
+        <th>Code Smells</th>
+        <th>Vulnerabilities</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let scan of scans">
+        <td>{{ scan.name || 'Unnamed' }}</td>
+        <td>{{ scan.projectKey }}</td>
+        <td>{{ scan.bugs }}</td>
+        <td>{{ scan.codeSmells }}</td>
+        <td>{{ scan.vulnerabilities }}</td>
+        <td>{{ scan.scannedAt | date:'short' }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

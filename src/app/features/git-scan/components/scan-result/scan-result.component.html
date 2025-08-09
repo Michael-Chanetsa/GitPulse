@@ -1,0 +1,161 @@
+<app-navbar></app-navbar>
+
+<div class="scan-container">
+  <!-- Input Form -->
+  <div class="scan-card">
+    <h1 class="scan-title">GitPulse Analysis</h1>
+    <p class="scan-subtitle">Get comprehensive code quality insights</p>
+
+    <form (submit)="analyzeRepo($event)" class="scan-form">
+      <!-- Progress -->
+      <div class="analysis-status" *ngIf="loading">
+        <div class="progress-bar">
+          <div class="progress-fill" [ngClass]="analysisStage"></div>
+        </div>
+        <div class="status-text">
+          {{
+            analysisStage === 'cloning'
+              ? '🔄 Cloning Repository...'
+              : analysisStage === 'fetching'
+              ? '📡 Fetching Results...'
+              : analysisStage === 'analyzing'
+              ? '🔍 Running Analysis...'
+              : analysisStage === 'done'
+              ? '✅ Analysis Complete'
+              : analysisStage === 'error'
+              ? '❌ Something went wrong'
+              : ''
+          }}
+        </div>
+      </div>
+
+      <!-- Repo URL -->
+      <div class="form-group">
+        <label for="repoUrl">GitHub Repository URL</label>
+        <input
+          type="text"
+          id="repoUrl"
+          [(ngModel)]="repoUrl"
+          name="repoUrl"
+          placeholder="https://github.com/owner/repo"
+          required
+          class="form-input"
+        />
+      </div>
+
+      <!-- Private Checkbox -->
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" [(ngModel)]="isPrivateRepo" name="isPrivateRepo" />
+          <span class="checkmark"></span> Private repository
+        </label>
+      </div>
+
+      <!-- Buttons -->
+      <button type="submit" class="scan-button" [disabled]="loading">
+        <span *ngIf="!loading">Analyze Repository</span>
+        <span *ngIf="loading" class="loading-text">
+          <span class="spinner"></span> Analyzing...
+        </span>
+      </button>
+      <button type="button" class="github-login-button" (click)="loginWithGitHub()">
+        <img src="assets/github-icon.svg" alt="GitHub" width="16" /> Login with GitHub
+      </button>
+      <button (click)="logoutFromGitHub()" class="logout-button">
+        🔒 Logout from GitHub
+      </button>
+    </form>
+
+    <div *ngIf="error" class="error-message">❌ {{ error }}</div>
+  </div>
+
+  <!-- Results -->
+  <div *ngIf="metrics" class="results-container">
+    <div class="metrics-header">
+      <h2>Analysis Results</h2>
+      <div class="project-key">{{ metrics.projectKey }}</div>
+    </div>
+
+    <div class="quality-gate" [ngClass]="getQualityGateClass()">
+      <span class="gate-status">{{ metrics.qualityGate }}</span>
+      <span class="gate-label">Quality Gate</span>
+    </div>
+
+    <div class="metrics-grid">
+      <!-- Bugs -->
+      <div class="metric-card" [class.warning]="metrics.bugs > 0">
+        <div class="metric-value">{{ metrics.bugs }}</div>
+        <div class="metric-label">Bugs</div>
+      </div>
+      <!-- Vulnerabilities -->
+      <div class="metric-card" [class.warning]="metrics.vulnerabilities > 0">
+        <div class="metric-value">{{ metrics.vulnerabilities }}</div>
+        <div class="metric-label">Vulnerabilities</div>
+      </div>
+      <!-- Code Smells -->
+      <div class="metric-card" [class.warning]="metrics.codeSmells > 0">
+        <div class="metric-value">{{ metrics.codeSmells }}</div>
+        <div class="metric-label">Code Smells</div>
+      </div>
+      <!-- Coverage -->
+      <div
+        class="metric-card"
+        [class.good]="(metrics.coverage || 0) >= 80"
+        [class.bad]="(metrics.coverage || 0) < 50"
+      >
+        <div class="metric-value">{{ metrics.coverage ?? 'N/A' }}%</div>
+        <div class="metric-label">Coverage</div>
+      </div>
+      <!-- Duplication -->
+      <div class="metric-card" [class.warning]="(metrics.duplicatedLinesDensity || 0) > 5">
+        <div class="metric-value">{{ metrics.duplicatedLinesDensity ?? 'N/A' }}%</div>
+        <div class="metric-label">Duplication</div>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-section">
+      <h3>Summary</h3>
+      <pre class="summary-text">{{ metrics.summary }}</pre>
+    </div>
+
+    <!-- Top Issues -->
+<div *ngIf="importantIssues.length > 0; else noTopIssues" class="issues-section">
+  <h3>Top Issues (Critical & Major)</h3>
+  <div class="issues-list">
+    <ng-container *ngFor="let issue of importantIssues">
+      <div
+        class="issue-card"
+        [class.critical]="issue.severity === 'CRITICAL'"
+        [class.major]="issue.severity === 'MAJOR'"
+      >
+        <div class="issue-severity">{{ issue.severity }}</div>
+        <div class="issue-message">{{ issue.message }}</div>
+        <div class="issue-rule">{{ issue.rule }}</div>
+
+        <button (click)="createJiraTask(issue)" class="jira-button">
+          🛠️ Create Jira Task
+        </button>
+        <button (click)="getAdviceForIssue(issue)" class="ai-button">
+          🤖 Get AI Advice
+        </button>
+      </div>
+    </ng-container>
+  </div>
+</div>
+
+<!-- AI Advice Output -->
+<div *ngIf="selectedIssue && aiAdvice" class="ai-advice-card">
+  <h3>🧠 AI Advice for:</h3>
+  <p><strong>{{ selectedIssue.message }}</strong> ({{ selectedIssue.severity }})</p>
+  <pre class="ai-response">{{ aiAdvice }}</pre>
+</div>
+
+<!-- AI Loading/Error States -->
+<div *ngIf="loading" class="ai-loading">🤖 Thinking... Getting AI suggestions...</div>
+<div *ngIf="error" class="ai-error">❌ AI Error: {{ error }}</div>
+
+<!-- No Issues Fallback -->
+<ng-template #noTopIssues>
+  <p>✅ No critical or major issues found in the last analysis!</p>
+</ng-template>
